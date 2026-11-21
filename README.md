@@ -7,19 +7,31 @@
 
 从零实现 Transformer 并完成中译英训练、验证和 beam search 推理的项目，适合学习注意力机制、位置编码和序列到序列建模。
 
+## 项目概览
+
+| 项目信息 | 内容 |
+| --- | --- |
+| 任务类型 | 中文到英文机器翻译 |
+| 数据规模 | 100,000 对中英句对 |
+| 模型结构 | 4 层编码器 + 4 层解码器，d_model=256，8 头注意力 |
+| 训练规模 | 150 epochs，约 212,456 个训练 step |
+| 最佳验证结果 | Loss 2.3622，Accuracy 0.4802，PPL 10.61 |
+| 代码组成 | 12 个 Python 文件，约 1,530 行 |
+
 ## 目录
 
 1. [项目背景](#项目背景)
 2. [数据说明](#数据说明)
 3. [模型结构](#模型结构)
 4. [训练配置](#训练配置)
-5. [实验结果](#实验结果)
-6. [环境要求](#环境要求)
-7. [安装](#安装)
-8. [快速开始](#快速开始)
-9. [项目结构](#项目结构)
-10. [复现说明](#复现说明)
-11. [后续优化](#后续优化)
+5. [训练过程](#训练过程)
+6. [实验结果](#实验结果)
+7. [环境要求](#环境要求)
+8. [安装](#安装)
+9. [快速开始](#快速开始)
+10. [项目结构](#项目结构)
+11. [复现说明](#复现说明)
+12. [常见问题](#常见问题)
 
 ## 项目背景
 
@@ -41,6 +53,8 @@
 | 中文 | 1998年 , 经过 统一 部署 , 伊犁州 , 地 两 级 党委 开始 尝试 ... |
 | 英文 | in 1998 , the yili autonomous prefecture cpc committee ... |
 
+训练脚本会构建词表，最大词表规模为 16,000，低频词映射为 UNK，句子最大长度为 160 个 token。
+
 ## 模型结构
 
 ![Transformer 架构](docs/architecture.png)
@@ -54,6 +68,14 @@
 | 输出层 | src/dm08_output.py | Linear + Softmax 输出 |
 | 模型组装 | src/dm09_transformer.py | 完整 Transformer |
 | 训练/推理 | src/NiuTrans_train.py、src/inference.py | 训练、验证、beam search |
+
+实现细节：
+
+- 使用正弦位置编码，支持训练和推理阶段的序列长度变化；
+- 注意力层包含缩放点积、多头拼接和输出投影；
+- 编码器和解码器均使用残差连接和 LayerNorm；
+- 解码器使用因果掩码，训练时并行计算，推理时逐词生成；
+- 推理阶段支持 beam search，可配置 beam size。
 
 ## 训练配置
 
@@ -72,7 +94,33 @@
 | scheduler | CosineAnnealing + warmup |
 | gradient_clip | 1.0 |
 
-训练脚本支持断点续训（checkpoint）、混合精度、学习率调度和最优模型保存。
+训练脚本支持断点续训（checkpoint）、混合精度、学习率调度和最优模型保存。训练日志字段包括 Global_Step、Epoch、Type、Loss、Acc、PPL、LR 和 GradNorm。
+
+## 训练过程
+
+### 损失曲线
+
+![训练与验证损失](reports/loss_curve.png)
+
+Loss 从约 9.4 降到约 2.7，验证损失在后半程稳定在 2.3—2.5 附近。
+
+### 准确率曲线
+
+![训练与验证准确率](reports/accuracy_curve.png)
+
+训练准确率持续上升，验证准确率在第 120 轮之后趋于稳定，说明模型没有出现明显过拟合。
+
+### 验证困惑度
+
+![验证集困惑度](reports/perplexity_curve.png)
+
+验证 PPL 从训练初期的数百降到 10.61，表明模型学到了有效的中英映射。
+
+### 学习率调度
+
+![学习率曲线](reports/learning_rate_curve.png)
+
+前 2 个 epoch 进行 warmup，之后按余弦退火逐步衰减，帮助训练后期稳定收敛。
 
 ## 实验结果
 
@@ -84,9 +132,7 @@
 | Val Accuracy | 0.4802 |
 | Val PPL | 10.61 |
 
-![Transformer 训练曲线](reports/training_overview.png)
-
-训练曲线显示 Loss 从约 9.4 降到约 2.7，学习率经过 warmup 后按余弦衰减，梯度范数保持在稳定区间。
+综合来看，模型在 10 万对语料上完成了从随机初始化到稳定翻译的完整训练过程，适合作为 Transformer 学习和二次开发的基础实现。
 
 ## 环境要求
 
@@ -144,7 +190,10 @@ transformer-zh-en-translation/
 │       └── english.txt
 ├── reports/
 │   ├── training_log.csv
-│   └── training_overview.png
+│   ├── loss_curve.png
+│   ├── accuracy_curve.png
+│   ├── perplexity_curve.png
+│   └── learning_rate_curve.png
 ├── docs/architecture.png
 ├── requirements.txt
 └── README.md
@@ -155,6 +204,17 @@ transformer-zh-en-translation/
 - 训练日志 reports/training_log.csv 记录了每个 logging step 的 Loss、Acc、PPL、LR 和 GradNorm。
 - 训练权重约 240MB，未直接提交到仓库；可先运行训练脚本生成，或放到 GitHub Releases / Hugging Face 后在 README 中补充下载地址。
 - 推理脚本使用训练时同一套空格分词词表，避免推理阶段重建词表造成索引错位。
+
+## 常见问题
+
+**Q：训练时显存不足怎么办？**  
+减小 batch_size，或开启梯度累积；也可以先在小规模数据上验证流程。
+
+**Q：推理结果乱码或不对齐？**  
+确认推理脚本和训练脚本使用同一份词表、同一套分词方式。
+
+**Q：没有 GPU 能复现吗？**  
+可以用 CPU 跑少量 step 验证代码，但完整 150 epoch 训练建议使用 GPU。
 
 ## 后续优化
 
