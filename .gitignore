@@ -1,0 +1,8 @@
+.idea/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+src/checkpoints/*.pt
+src/training_log.csv
+src/training_overview.png
